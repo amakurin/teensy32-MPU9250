@@ -37,9 +37,10 @@ public:
     static const uint8_t I2C_SLV0_REG   = 0x26;
     static const uint8_t I2C_SLV0_CTRL  = 0x27;
     static const uint8_t I2C_SLV0_EN    = 0x80;
+    static const uint8_t I2C_SLV0_DO    = 0x63;
+    static const uint8_t EXT_SENS_DATA_00 = 0x49;
 
     static const uint8_t I2C_READ_FLAG  = 0x80;
-    static const uint8_t I2C_READ_COUNT = 0x07;  // read 7 bytes from mag xl, xh, yl, yh, zl, zh, st2 - status 
    
     static const uint8_t INT_PIN_CFG    = 0x37;
     static const uint8_t BYPASS_EN      = 1; 
@@ -73,26 +74,9 @@ public:
     static constexpr float tempScale = 333.87f;
     static constexpr float tempOffset = 21.0f;
 
-
-    Bus* _i2cbus;
-    Bus* _spibus;
     Bus* _bus;
     AK8963 _mag;
-    MPU9250 (Bus* i2cbus, Bus* spibus) : _i2cbus(i2cbus),  _spibus(spibus), _bus(_i2cbus), _mag(_i2cbus) {
-        _i2cbus->begin();
-    }
-
-    void switchMasterBus(bool useSPI = false){
-        if (useSPI){
-            writeRegisterBit(USER_CTRL, I2C_IF_DIS); 
-            _bus->end();
-            _bus = _spibus; 
-        }
-        else{
-            writeRegisterBit(USER_CTRL, I2C_IF_DIS, 0); 
-            _bus->end();
-            _bus = _i2cbus; 
-        }
+    MPU9250 (Bus* bus) : _bus(bus), _mag(_bus) {
         _bus->begin();
     }
 
@@ -116,8 +100,7 @@ public:
 //    }
 
     void setup() {
-        toBypassMode();
-        _mag.setup();
+        AK8963Setup();
         delay(100);
         writeRegisterBit(PWR_MGMT_1, H_RESET);
         float  gyroBias[3], accelBias[3];
@@ -141,15 +124,12 @@ public:
         writeRegisterBit(PWR_MGMT_1, H_RESET);
 
         writeRegister(I2C_SLV0_ADDR, I2C_READ_FLAG | AK8963::I2C_ADDRESS); // Set slave_0 to the AK8963 and read mode
-        delay(10);
         writeRegister(I2C_SLV0_REG, AK8963::HXL);   // Set slave_0 read register to AK8963 HXL
-        delay(10);
-        writeRegister(I2C_SLV0_CTRL, I2C_SLV0_EN | I2C_READ_COUNT); // enable I2C and request the bytes
-        delay(10);
+        writeRegister(I2C_SLV0_CTRL, I2C_SLV0_EN | 7); // enable I2C to read 7 bytes from mag xl, xh, yl, yh, zl, zh, st2 - status 
         writeRegister(I2C_MST_CTRL, I2C_MST_CLK | (1 << I2C_MST_P_NSR));   // set i2c to 400Hz
-        delay(10);
-        writeRegisterBit(USER_CTRL, I2C_MST_EN);    // Enable I2C Master Mode
-        delay(10);
+        writeRegisterBit(USER_CTRL, I2C_MST_EN );    // Enable I2C Master Mode
+        writeRegisterBit(USER_CTRL, I2C_IF_DIS );    // Disable I2C Slave
+        delay(100);
     }
 
     // Function which accumulates gyro and accelerometer data after device initialization. It calculates the average
@@ -392,6 +372,54 @@ public:
 
     byte readRegister(uint8_t address){
         return _bus->readByte(MPU9250_I2C_ADDRESS, address);
+    }
+
+    //************************************************************************ 
+    // Magnetometer AK8963 registers Read\Write using mpu I2C Master features
+    // We'll use these when there is no ability to communicate directly by i2c
+    //************************************************************************ 
+    bool writeAK8963Register(uint8_t address, uint8_t data){
+        uint8_t count = 1;
+        uint8_t buff[1];
+
+        writeRegister(I2C_SLV0_ADDR, AK8963::I2C_ADDRESS); // set slave 0 to the AK8963 and set for write
+        writeRegister(I2C_SLV0_REG, address);              // set the register to the desired AK8963 sub address
+        writeRegister(I2C_SLV0_DO,data);                   // store the data for write
+        writeRegister(I2C_SLV0_CTRL, I2C_SLV0_EN | count);  // enable I2C and send 1 byte
+
+        // read the register and confirm
+        readAK8963Registers(address, sizeof(buff), &buff[0]);
+
+        if(buff[0] == data) {
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+
+    void readAK8963Registers(uint8_t address, uint8_t count, uint8_t* dest){
+        writeRegister(I2C_SLV0_ADDR, AK8963::I2C_ADDRESS | I2C_READ_FLAG); // set slave 0 to the AK8963 and set for read
+        writeRegister(I2C_SLV0_REG, address);               // set the register to the desired AK8963 sub address
+        writeRegister(I2C_SLV0_CTRL, I2C_SLV0_EN | count);  // enable I2C and request the bytes
+        delayMicroseconds(100);                             // takes some time for these registers to fill
+        readRegisters(EXT_SENS_DATA_00,count,dest);         // read the bytes off the MPU9250 EXT_SENS_DATA registers
+    }
+
+    void AK8963Setup(){
+        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_PWR_DOWN); // Power down magnetometer  
+        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_FUSE); // Enter Fuse ROM access mode
+
+        // Extract the factory calibration for each magnetometer axis
+        uint8_t rawData[3];  
+        readAK8963Registers(AK8963::ASAX, 3, &rawData[0]);  // Read the x-, y-, and z-axis calibration values
+        float magnetometerResolution = 4912.0f / 32760.0f; // micro Tesla
+        _mag._magCalibration[0] = ((float)(rawData[0] - 128)/256. + 1.) * magnetometerResolution; 
+        _mag._magCalibration[1] = ((float)(rawData[1] - 128)/256. + 1.) * magnetometerResolution;  
+        _mag._magCalibration[2] = ((float)(rawData[2] - 128)/256. + 1.) * magnetometerResolution; 
+
+        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_PWR_DOWN); // Power down magnetometer  
+        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_CONT_MEAS_2); // Set mode to 16 bit resolution at 100Hz 
     }
 };
 

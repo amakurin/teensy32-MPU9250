@@ -172,8 +172,10 @@ class RegDialog ( wx.Dialog ):
         
         bsButtons = wx.BoxSizer( wx.HORIZONTAL )
         
-        self.m_btn_regread = wx.Button( self, wx.ID_ANY, u"Read Regs", wx.DefaultPosition, wx.DefaultSize, 0 )
-        bsButtons.Add( self.m_btn_regread, 0, wx.ALL, 5 )
+        self.m_btn_regRead = wx.Button( self, wx.ID_ANY, u"Read Regs", wx.DefaultPosition, wx.DefaultSize, 0 )
+        bsButtons.Add( self.m_btn_regRead, 0, wx.ALL, 5 )
+        self.m_btn_regReadNoSetup = wx.Button( self, wx.ID_ANY, u"Read Regs No Setup", wx.DefaultPosition, wx.DefaultSize, 0 )
+        bsButtons.Add( self.m_btn_regReadNoSetup, 0, wx.ALL, 5 )
                 
         bsMain.Add( bsButtons, 1, wx.EXPAND, 5 )
         
@@ -182,10 +184,14 @@ class RegDialog ( wx.Dialog ):
         
         self.Centre( wx.BOTH )
 
-        self.m_btn_regread.Bind( wx.EVT_BUTTON, self.btn_regreadClick )
+        self.m_btn_regRead.Bind( wx.EVT_BUTTON, self.btn_regReadClick )
+        self.m_btn_regReadNoSetup.Bind( wx.EVT_BUTTON, self.m_btn_regReadNoSetupClick )
 
-    def btn_regreadClick(self, event):
-        self.hid.call(CMD_READ_REGS, [], self.CMD_READ_REGS_callback)
+    def btn_regReadClick(self, event):
+        self.hid.call(CMD_READ_REGS, [1], self.CMD_READ_REGS_callback)
+    
+    def m_btn_regReadNoSetupClick(self, event):
+        self.hid.call(CMD_READ_REGS, [0], self.CMD_READ_REGS_callback)
     
     def CMD_READ_REGS_callback(self, hid, byte_response):
         start_addr = byte_response[0]

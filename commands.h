@@ -107,7 +107,6 @@ public:
     void setup(){
         bufPrint();
         _mpu9250->setup();
-        _mpu9250->switchMasterBus();
         _eInt[0] = 0.0;
         _eInt[1] = 0.0;
         _eInt[2] = 0.0;
@@ -124,19 +123,12 @@ public:
     }
 
     bool exec(){
-        unsigned long t1 = micros();
+//        unsigned long t1 = micros();
         float sensor_data[15]; //ax, ay, az, gx, gy, gz, hx, hy, hz, t, qx, qy, qz, qw;
         _mpu9250->readData(&sensor_data[0]);
 
-//Serial.print(F("MAG: "));
-//Serial.print(sensor_data[6]);
-//Serial.print(F(", "));
-//Serial.print(sensor_data[7]);
-//Serial.print(F(", "));
-//Serial.println(sensor_data[8]);
-
         auto dt = _timeCounter.update();
-        unsigned long t2 = micros();
+//        unsigned long t2 = micros();
         
         // quaternion
         switch (_alg){
@@ -145,7 +137,7 @@ public:
             case MAHONY :
                 MahonyQuaternionUpdate(sensor_data, _eInt, _q, dt); break;
         }
-        unsigned long t3 = micros();
+//        unsigned long t3 = micros();
 //Serial.print(F("Read: "));
 //Serial.println(t2-t1);
 //Serial.print(F("MADGWICK: "));
@@ -174,7 +166,6 @@ public:
     ~GenericStopCommand(){}
 
     void setup(){
-        _mpu9250->switchMasterBus();
     }
 
     bool exec() {
@@ -213,8 +204,9 @@ public:
     ~ReadRegistersCommand(){}
 
     void setup(){
-        _mpu9250->setup();
-        _mpu9250->switchMasterBus();
+        uint data_len = getDataLen();
+        if ((data_len>0) && _buffer[2])
+            _mpu9250->setup();
     }
 
     bool exec() {

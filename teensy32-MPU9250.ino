@@ -5,8 +5,8 @@
 #include <memory>
 
 SPIBus spibus;
-I2CBus i2cbus;
-MPU9250 mpu9250(&i2cbus, &spibus);
+//I2CBus i2cbus;
+MPU9250 mpu9250(&spibus);
 byte buffer[64];
 std::shared_ptr<BaseCommand> pCommand;
 

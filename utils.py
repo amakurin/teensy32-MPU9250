@@ -81,26 +81,28 @@ class RawHIDDevice(object):
 
 
 class TimeCounter(object):
-    def __init__(self, avgThre = 100):
+    def __init__(self, avgThre = 100.):
         self.start = timer()
-        self.cur = 0
-        self.avg = 0
-        self.cnt = 0
+        self.cur = 0.
+        self.avg = 0.
+        self.cnt = 0.
         self.avgThre = avgThre
+
+    def reset(self):
+        self.start = timer()
+        self.cur = 0.
+        self.avg = 0.
+        self.cnt = 0.
 
     def update(self):
         end = timer()
-        dt = (end - self.start)
-        self.start = end
-        self.avg += dt
-        self.cnt += 1
+        self.avg += (end - self.start)
+        self.cnt += 1.
         if self.cnt > self.avgThre:
-            self.cur = (self.cur + self.avg/self.cnt)/2
-            self.avg = 0
-            self.cnt = 0
-        elif self.cur ==0:
-            self.cur = self.avg / self.cnt
-        return self.cur
+            self.cur = (self.cur + self.avg/self.cnt)*0.5
+            self.avg = 0.
+            self.cnt = 0.
+        self.start = end
 
-    def getFreq(self):
-        return 1/self.cur if self.cur != 0 else 0
+    def getRate(self):
+        return 1/self.cur if self.cur > 0. else 0

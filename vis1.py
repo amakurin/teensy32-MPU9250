@@ -1,12 +1,17 @@
 import visual as vs
+import visual.graph as vsg
 from pylab import pi, array, mat, deg2rad
 import math 
 from struct import pack, unpack
 import wx
-import numpy
+import numpy as np
 from utils import RawHIDDevice, TimeCounter
 import time
 from regdialog import RegDialog
+import matplotlib.figure as mfigure
+import matplotlib.animation as manim
+
+from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg
 
 class Quaternion(object):
     def __init__(self, q = (1.0,0.0,0.0,0.0)):
@@ -44,15 +49,18 @@ class MainWindow(object):
     def __init__(self):
         self.hid = None
         self.q = Quaternion((1.0,0.0,1.0,1.0))
-        self.update_frequency = 0
+        self.sensor_data = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         self.run_loop = None
-        self.w = vs.window(menus=True, title="9DOF quaternion visualizer", x=0, y=0, width=800, height=600)
+
+        self.frame_rate_counter = TimeCounter()
+
+        self.w = vs.window(menus=True, title="9DOF quaternion visualizer", x=0, y=0, width=1150, height=600)
         ######################################
         ### WINDOW CONTROLS ##################
         ######################################
-        gbSizer3 = wx.GridBagSizer( 5, 5 )
-        gbSizer3.SetFlexibleDirection( wx.BOTH )
-        gbSizer3.SetNonFlexibleGrowMode( wx.FLEX_GROWMODE_SPECIFIED )
+        gbs_main = wx.GridBagSizer( 5, 5 )
+        gbs_main.SetFlexibleDirection( wx.BOTH )
+        gbs_main.SetNonFlexibleGrowMode( wx.FLEX_GROWMODE_SPECIFIED )
         
         # Quaternion box #####################
         sbQ = wx.StaticBoxSizer( wx.StaticBox( self.w.panel, wx.ID_ANY, u"Quaternion" ), wx.VERTICAL )
@@ -79,18 +87,79 @@ class MainWindow(object):
         
         sbQ.Add( fsQ, 1, wx.EXPAND, 5 )
         
-        gbSizer3.Add( sbQ, wx.GBPosition( 0, 1 ), wx.GBSpan( 1, 1 ), wx.EXPAND, 5 )
+        gbs_main.Add( sbQ, wx.GBPosition( 0, 0 ), wx.GBSpan( 1, 1 ), wx.EXPAND, 5 )
         
         # Frequency box #####################
-        sbFrequency = wx.StaticBoxSizer( wx.StaticBox( self.w.panel, wx.ID_ANY, u"Frequency" ), wx.VERTICAL )       
-        self.m_st_freq = wx.StaticText( sbFrequency.GetStaticBox(), wx.ID_ANY, u"100.0Hz", wx.DefaultPosition, wx.DefaultSize, 0 )
-        self.m_st_freq.SetFont( wx.Font( 20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD, False, wx.EmptyString ) )
-        self.m_st_freq.SetForegroundColour( wx.Colour( 0, 0, 160 ) )
-        sbFrequency.Add( self.m_st_freq, 0, wx.ALL, 5 )
+        sbFrequency = wx.StaticBoxSizer( wx.StaticBox( self.w.panel, wx.ID_ANY, u"Frequency" ), wx.VERTICAL )
         
-        gbSizer3.Add( sbFrequency, wx.GBPosition( 0, 2 ), wx.GBSpan( 1, 1 ), wx.EXPAND, 5 )
+        fgSizer3 = wx.FlexGridSizer( 0, 2, 0, 0 )
+        fgSizer3.SetFlexibleDirection( wx.BOTH )
+        fgSizer3.SetNonFlexibleGrowMode( wx.FLEX_GROWMODE_SPECIFIED )
         
-        self.w.panel.SetSizer( gbSizer3 )
+        self.m_st_filtUpdate = wx.StaticText( sbFrequency.GetStaticBox(), wx.ID_ANY, u"Filter update:", wx.DefaultPosition, wx.DefaultSize, 0 )
+        fgSizer3.Add( self.m_st_filtUpdate, 0, wx.ALL, 5 )
+        
+        self.m_st_filterRate = wx.StaticText( sbFrequency.GetStaticBox(), wx.ID_ANY, u"0000Hz", wx.DefaultPosition, wx.DefaultSize, 0 )
+        self.m_st_filterRate.SetFont( wx.Font( 20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD, False, wx.EmptyString ) )
+        self.m_st_filterRate.SetForegroundColour( wx.Colour( 0, 0, 160 ) )
+        
+        fgSizer3.Add( self.m_st_filterRate, 0, wx.ALL, 5 )
+        
+        self.m_st_frameUpdate = wx.StaticText( sbFrequency.GetStaticBox(), wx.ID_ANY, u"Frame update:", wx.DefaultPosition, wx.DefaultSize, 0 )
+        fgSizer3.Add( self.m_st_frameUpdate, 0, wx.ALL, 5 )
+        
+        self.m_st_frameRate = wx.StaticText( sbFrequency.GetStaticBox(), wx.ID_ANY, u"000Hz", wx.DefaultPosition, wx.DefaultSize, 0 )
+        self.m_st_frameRate.SetFont( wx.Font( 20, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD, False, "Arial" ) )
+        self.m_st_frameRate.SetForegroundColour( wx.Colour( 100, 82, 74 ) )
+        
+        fgSizer3.Add( self.m_st_frameRate, 0, wx.ALL, 5 )
+               
+        sbFrequency.Add( fgSizer3, 1, wx.EXPAND, 5 )
+        
+        gbs_main.Add( sbFrequency,  wx.GBPosition( 0, 1 ), wx.GBSpan( 1, 1 ), wx.EXPAND, 5 )
+
+
+        # Settings box #####################
+        sbSettings = wx.StaticBoxSizer( wx.StaticBox( self.w.panel, wx.ID_ANY, u"Settings" ), wx.VERTICAL )
+        
+        fgsSettings = wx.FlexGridSizer( 0, 2, 0, 0 )
+        fgsSettings.SetFlexibleDirection( wx.BOTH )
+        fgsSettings.SetNonFlexibleGrowMode( wx.FLEX_GROWMODE_SPECIFIED )
+        
+        self.m_st_gyro = wx.StaticText( sbSettings.GetStaticBox(), wx.ID_ANY, u"Gyro scale:", wx.DefaultPosition, wx.DefaultSize, 0 )
+        fgsSettings.Add( self.m_st_gyro, 0, wx.ALL, 5 )
+        
+        m_cho_gyroScaleChoices = []
+        self.m_cho_gyroScale = wx.Choice( sbSettings.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, m_cho_gyroScaleChoices, 0 )
+        self.m_cho_gyroScale.SetSelection( 0 )
+        fgsSettings.Add( self.m_cho_gyroScale, 0, wx.ALL, 5 )
+        
+        self.m_st_accel = wx.StaticText( sbSettings.GetStaticBox(), wx.ID_ANY, u"Accel scale:", wx.DefaultPosition, wx.DefaultSize, 0 )
+        fgsSettings.Add( self.m_st_accel, 0, wx.ALL, 5 )
+        
+        m_cho_accelScaleChoices = []
+        self.m_cho_accelScale = wx.Choice( sbSettings.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, m_cho_accelScaleChoices, 0 )
+        self.m_cho_accelScale.SetSelection( 0 )
+        fgsSettings.Add( self.m_cho_accelScale, 0, wx.ALL, 5 )
+        
+        self.m_st_filter = wx.StaticText( sbSettings.GetStaticBox(), wx.ID_ANY, u"Filter:", wx.DefaultPosition, wx.DefaultSize, 0 )
+        fgsSettings.Add( self.m_st_filter, 0, wx.ALL, 5 )
+        
+        m_cho_filterChoices = []
+        self.m_cho_filter = wx.Choice( sbSettings.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, m_cho_filterChoices, 0 )
+        self.m_cho_filter.SetSelection( 0 )
+        fgsSettings.Add( self.m_cho_filter, 0, wx.ALL, 5 )
+        
+        sbSettings.Add( fgsSettings, 1, wx.EXPAND, 5 )
+        
+        gbs_main.Add( sbSettings, wx.GBPosition( 0, 2 ), wx.GBSpan( 1, 1 ), wx.EXPAND, 5 )
+
+        # Main layout #####################
+        
+        gbs_main.AddGrowableCol( 0 )
+        gbs_main.AddGrowableCol( 2 )
+
+        self.w.panel.SetSizer( gbs_main )
         self.w.panel.Layout()
 
         # Main Menu #####################
@@ -119,11 +188,22 @@ class MainWindow(object):
         self.w.win.Bind( wx.EVT_MENU, self.mi_startClick, id = self.m_mi_start.GetId() )
         self.w.win.Bind( wx.EVT_MENU, self.mi_stopClick, id = self.m_mi_stop.GetId() )
 
+        # Plot ###############################################################################################
+        self.plot=vsg.gdisplay(window=self.w, x=360, y=134, width=800, height=350, title='N vs. t', background=vs.color.black)
+        self.gxs = vsg.gcurve(color=(190./255.,  20./255.,   0./255.), dot=True, size=4)
+        self.gys = vsg.gcurve(color=( 22./255., 158./255.,   7./255.), dot=True, size=4)
+        self.gzs = vsg.gcurve(color=( 11./255.,  96./255., 232./255.), dot=True, size=4)
+
+        self.axs = vsg.gcurve(color=(255./255.,  76./255.,  50./255.), dot=True, size=4)
+        self.ays = vsg.gcurve(color=( 85./255., 242./255.,  29./255.), dot=True, size=4)
+        self.azs = vsg.gcurve(color=( 76./255., 171./255., 255./255.), dot=True, size=4)
+        self.frame_counter = 0
+
         # 3D scene ###########################################################################################
 
-        self.scene=vs.display(window=self.w, x=5, y=150, width=770, height=410)
+        self.scene=vs.display(window=self.w, x=5, y=134, width=350, height=350)
 
-        self.scene.range=2
+        self.scene.range=1
 
         self.f = vs.frame()
 
@@ -152,16 +232,32 @@ class MainWindow(object):
 
         self.initAxis = Quaternion((0, 1, 0, 0))
         self.initUp = Quaternion((0, 0, 1, 0))
+        self.realtime_started = False
 
-    def setQuaternionLabels(self, quaternion):
-        self.m_st_q0.SetLabelText('%+8f'%quaternion.q[0]) 
-        self.m_st_q1.SetLabelText('%+8f'%quaternion.q[1]) 
-        self.m_st_q2.SetLabelText('%+8f'%quaternion.q[2]) 
-        self.m_st_q3.SetLabelText('%+8f'%quaternion.q[3]) 
+    def clear_plot(self):
+        if self.plot:
+            for obj in self.plot.display.objects: 
+                obj.visible = False
+                del obj
+        self.gxs = vsg.gcurve(color=(190./255.,  20./255.,   0./255.), dot=True, size=4)
+        self.gys = vsg.gcurve(color=( 22./255., 158./255.,   7./255.), dot=True, size=4)
+        self.gzs = vsg.gcurve(color=( 11./255.,  96./255., 232./255.), dot=True, size=4)
 
-    def setFrequencyLabel(self, freq):
-        self.m_st_freq.SetLabelText('%04.0fHz'%freq)
+        self.axs = vsg.gcurve(color=(255./255.,  76./255.,  50./255.), dot=True, size=4)
+        self.ays = vsg.gcurve(color=( 85./255., 242./255.,  29./255.), dot=True, size=4)
+        self.azs = vsg.gcurve(color=( 76./255., 171./255., 255./255.), dot=True, size=4)
+        self.frame_counter = 0.
 
+    def updateQuaternionLabels(self):
+        self.m_st_q0.SetLabelText('%+8f'%self.q.q[0]) 
+        self.m_st_q1.SetLabelText('%+8f'%self.q.q[1]) 
+        self.m_st_q2.SetLabelText('%+8f'%self.q.q[2]) 
+        self.m_st_q3.SetLabelText('%+8f'%self.q.q[3]) 
+
+    def updateFrequencyLabels(self):
+        self.frame_rate_counter.update()
+        self.m_st_filterRate.SetLabelText('%04.0fHz'%self.sensor_data[-1])
+        self.m_st_frameRate.SetLabelText('%03.0fHz'%self.frame_rate_counter.getRate())
 
     def win_mainClose(self, event):
         if self.hid:
@@ -186,27 +282,41 @@ class MainWindow(object):
         print '\n----  handle_mi_settings'
 
     def mi_startClick(self, event ) :
+        self.realtime_started = True
+        self.frame_rate_counter.reset()
         self.hid.call(CMD_START_SENSORS, [100, 0], self.CMD_START_SENSORS_callback)
 
     def mi_stopClick(self, event ) :
         self.hid.call(CMD_STOP, [], self.CMD_STOP_SENSORS_callback)
+        self.clear_plot()
 
     def CMD_START_SENSORS_callback(self, hid, byte_response):
-        sensor_data = unpack('f' * 15, str(bytearray(byte_response)))  
-        self.q.fromCoeffs(sensor_data[10:14])
-        self.update_frequency = sensor_data[-1]  
+        self.sensor_data = unpack('f' * 15, str(bytearray(byte_response)))  
+        self.q.fromCoeffs(self.sensor_data[10:14])
 
     def CMD_STOP_SENSORS_callback(self, hid, byte_response):
         hid.releaseCallback(CMD_START_SENSORS)
+        self.realtime_started = False
+
+    def plot_sensor_data(self):
+        self.frame_counter += 1.
+        self.gxs.plot(pos=(self.frame_counter,self.sensor_data[0])) 
+        self.gys.plot(pos=(self.frame_counter,self.sensor_data[1])) 
+        self.gzs.plot(pos=(self.frame_counter,self.sensor_data[2])) 
+        self.axs.plot(pos=(self.frame_counter,self.sensor_data[3])) 
+        self.ays.plot(pos=(self.frame_counter,self.sensor_data[4])) 
+        self.azs.plot(pos=(self.frame_counter,self.sensor_data[5])) 
 
     def update(self):
-        self.setFrequencyLabel(self.update_frequency)
-        self.setQuaternionLabels(self.q)
-        res = self.rmC * self.q
-        axis = (res*self.initAxis)*res.conjugate()
-        up = (res*self.initUp)*res.conjugate()
-        self.f.axis = (axis.q[1], axis.q[2], axis.q[3])
-        self.f.up = (up.q[1], up.q[2], up.q[3])
+        if self.realtime_started:
+            self.updateFrequencyLabels()
+            self.updateQuaternionLabels()
+            res = self.rmC * self.q
+            axis = (res*self.initAxis)*res.conjugate()
+            up = (res*self.initUp)*res.conjugate()
+            self.f.axis = (axis.q[1], axis.q[2], axis.q[3])
+            self.f.up = (up.q[1], up.q[2], up.q[3])
+            self.plot_sensor_data()
 
     def loop(self):
         while not self.hid:
@@ -222,8 +332,8 @@ class MainWindow(object):
 ##    hid.call(CMD_MAG_CALIB, [], CMD_MAG_CALIB_callback)
 #    data = []
 ##        data.append(sensor_data)
-##    a = numpy.asarray(data)
-##    numpy.savetxt("./data/sensor_data_dump.csv", a, delimiter=",")          
+##    a = np.asarray(data)
+##    np.savetxt("./data/sensor_data_dump.csv", a, delimiter=",")          
 
 
 def main():
