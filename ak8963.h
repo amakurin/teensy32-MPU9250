@@ -41,8 +41,8 @@ public:
     Bus* _bus;
 
     float _magCalibration[3] = {0, 0, 0};  // Factory mag calibration
-    float _magBias[3] = {15.5, 23.0,  -19.0};  // Calibration bias
-    float _magScale[3] = {1.05,  1.04,   0.95};  // Calibration scale
+    float _magBias[3] = {12.5, 15.0,  -33.0};  // Calibration bias
+    float _magScale[3] = {1.02,  1.04,   0.95};  // Calibration scale
 
     AK8963 (Bus* bus){
         this->_bus = bus;

@@ -6,8 +6,6 @@ import wx.dataview
 ## Class Reg Dialog
 ###########################################################################
 
-CMD_READ_REGS = 3
-
 REG_NAMES = [
 'SELF_TEST_X_GYRO  ',
 'SELF_TEST_Y_GYRO  ',
@@ -140,11 +138,12 @@ REG_NAMES = [
 
 class RegDialog ( wx.Dialog ):
     
-    def __init__( self, parent, hid):
-        wx.Dialog.__init__ ( self, parent, id = wx.ID_ANY, title = wx.EmptyString, pos = wx.DefaultPosition, size = wx.Size( 800,400 ), style = wx.DEFAULT_DIALOG_STYLE )
-        
-        self.hid = hid
+    def __init__( self, parent, hid, CMD_READ_REGS):
 
+        wx.Dialog.__init__ ( self, parent, id = wx.ID_ANY, title = wx.EmptyString, pos = wx.DefaultPosition, size = wx.Size( 800,400 ), style = wx.DEFAULT_DIALOG_STYLE )
+
+        self.hid = hid
+        self.CMD_READ_REGS = CMD_READ_REGS
         self.SetSizeHintsSz( wx.DefaultSize, wx.DefaultSize )
         
         bsMain = wx.BoxSizer( wx.VERTICAL )
@@ -188,10 +187,10 @@ class RegDialog ( wx.Dialog ):
         self.m_btn_regReadNoSetup.Bind( wx.EVT_BUTTON, self.m_btn_regReadNoSetupClick )
 
     def btn_regReadClick(self, event):
-        self.hid.call(CMD_READ_REGS, [1], self.CMD_READ_REGS_callback)
+        self.hid.call(self.CMD_READ_REGS, [1], self.CMD_READ_REGS_callback)
     
     def m_btn_regReadNoSetupClick(self, event):
-        self.hid.call(CMD_READ_REGS, [0], self.CMD_READ_REGS_callback)
+        self.hid.call(self.CMD_READ_REGS, [0], self.CMD_READ_REGS_callback)
     
     def CMD_READ_REGS_callback(self, hid, byte_response):
         start_addr = byte_response[0]

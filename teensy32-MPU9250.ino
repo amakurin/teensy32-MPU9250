@@ -4,6 +4,10 @@
 #include "commands.h"
 #include <memory>
 
+#define PIN_INTERRUPT 22
+#define ENABLE_INTERRUPTS 0
+
+
 SPIBus spibus;
 //I2CBus i2cbus;
 MPU9250 mpu9250(&spibus);
@@ -12,6 +16,16 @@ std::shared_ptr<BaseCommand> pCommand;
 
 void setup() {
     Serial.begin(115200);
+    mpu9250.switchInterrupts(ENABLE_INTERRUPTS);
+    if (ENABLE_INTERRUPTS) {
+        pinMode(PIN_INTERRUPT, INPUT);
+        attachInterrupt(PIN_INTERRUPT, isrService, RISING);
+    }
+}
+
+void isrService()
+{
+    mpu9250.setInterrupt();
 }
 
 void loop() {

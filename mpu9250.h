@@ -74,16 +74,37 @@ public:
     static constexpr float tempScale = 333.87f;
     static constexpr float tempOffset = 21.0f;
 
+    bool _interrupt = false;
+    bool _interrupts_enabled = false;
+
     Bus* _bus;
     AK8963 _mag;
     MPU9250 (Bus* bus) : _bus(bus), _mag(_bus) {
         _bus->begin();
     }
 
+    void setInterrupt(){
+        _interrupt = true;
+    }
+
+    bool readInterrupt(){
+        if (!_interrupts_enabled) return true;
+        bool result = false;
+        cli();
+        result = _interrupt;
+        _interrupt = false;
+        sei();
+        return result;
+    }
+
     void toBypassMode() {
         writeRegisterBit(PWR_MGMT_1, H_RESET);      // Power reset
         writeRegister(INT_PIN_CFG, 0x02);           // Enable I2C bypass, disable FSYNC
         writeRegisterBit(USER_CTRL, I2C_MST_EN, 0); // Disable I2C Master Mode
+    }
+
+    void switchInterrupts(bool enable){
+        _interrupts_enabled = enable;
     }
 
 // Enabling interrupts with connecting INT to teensy pin causes magnetometer overflow and freezing on my mpu chip
@@ -100,8 +121,6 @@ public:
 //    }
 
     void setup() {
-        AK8963Setup();
-        delay(100);
         writeRegisterBit(PWR_MGMT_1, H_RESET);
         float  gyroBias[3], accelBias[3];
         calibrate(&gyroBias[0], &accelBias[0]);
@@ -121,15 +140,20 @@ public:
         Serial.print(accelBias[2]);
         Serial.println("]");
 
-        writeRegisterBit(PWR_MGMT_1, H_RESET);
+        writeRegister(PWR_MGMT_1, 1);
 
-        writeRegister(I2C_SLV0_ADDR, I2C_READ_FLAG | AK8963::I2C_ADDRESS); // Set slave_0 to the AK8963 and read mode
-        writeRegister(I2C_SLV0_REG, AK8963::HXL);   // Set slave_0 read register to AK8963 HXL
-        writeRegister(I2C_SLV0_CTRL, I2C_SLV0_EN | 7); // enable I2C to read 7 bytes from mag xl, xh, yl, yh, zl, zh, st2 - status 
-        writeRegister(I2C_MST_CTRL, I2C_MST_CLK | (1 << I2C_MST_P_NSR));   // set i2c to 400Hz
-        writeRegisterBit(USER_CTRL, I2C_MST_EN );    // Enable I2C Master Mode
+        // ORDER MATTERS: First - enable master, then - setup mag  
+        writeRegister(I2C_MST_CTRL, I2C_MST_CLK);    // set i2c to 400Hz
         writeRegisterBit(USER_CTRL, I2C_IF_DIS );    // Disable I2C Slave
-        delay(100);
+        writeRegisterBit(USER_CTRL, I2C_MST_EN );    // Enable I2C Master Mode
+
+        AK8963Setup();
+
+        if (_interrupts_enabled) {
+            writeRegisterBit(INT_PIN_CFG, 4);   // clear interrupt on any read
+            writeRegisterBit(INT_PIN_CFG, 5);   // INT pin level held until interrupt status is cleared        
+            writeRegisterBit(INT_ENABLE, 0);    // RAW_RDY_EN
+        }
     }
 
     // Function which accumulates gyro and accelerometer data after device initialization. It calculates the average
@@ -412,15 +436,63 @@ public:
 
         // Extract the factory calibration for each magnetometer axis
         uint8_t rawData[3];  
-        readAK8963Registers(AK8963::ASAX, 3, &rawData[0]);  // Read the x-, y-, and z-axis calibration values
+        readAK8963Registers(AK8963::ASAX, 3, rawData);  // Read the x-, y-, and z-axis calibration values
         float magnetometerResolution = 4912.0f / 32760.0f; // micro Tesla
         _mag._magCalibration[0] = ((float)(rawData[0] - 128)/256. + 1.) * magnetometerResolution; 
         _mag._magCalibration[1] = ((float)(rawData[1] - 128)/256. + 1.) * magnetometerResolution;  
         _mag._magCalibration[2] = ((float)(rawData[2] - 128)/256. + 1.) * magnetometerResolution; 
 
         writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_PWR_DOWN); // Power down magnetometer  
-        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_CONT_MEAS_2); // Set mode to 16 bit resolution at 100Hz 
+        delay(100);
+        writeAK8963Register(AK8963::CNTL1, AK8963::CNTL1_CONT_MEAS_2); // Set mode to 16 bit resolution at 100Hz continuous reading
+        
+        // By this read we setup auto slave reading and actually read for the first time.
+        uint8_t buff[7];
+        readAK8963Registers(AK8963::HXL, 7, buff);
     }
+
+    void AK8963calibrate(float* bias, float* scale){
+        uint16_t ii = 0, sample_count = 1500; // at 100 Hz ODR, new mag data is available every 10 ms
+        int32_t int32_bias[3] = {0, 0, 0}, int32_scale[3] = {0, 0, 0};
+        int16_t mag_max[3] = {-32767, -32767, -32767}, mag_min[3] = {32767, 32767, 32767}, mag_temp[3] = {0, 0, 0};
+        delay(4000);
+
+        // shoot for ~fifteen seconds of mag data
+        for(ii = 0; ii < sample_count; ii++) {
+            uint8_t buffer[7];
+            readAK8963Registers(AK8963::HXL, 7, buffer);  
+            to16bit(&buffer[0], mag_temp, 3, true);
+            if (!_mag.isOverflow(buffer[6])){  // Read the mag data   
+                for (int jj = 0; jj < 3; jj++) {
+                    if(mag_temp[jj] > mag_max[jj]) mag_max[jj] = mag_temp[jj];
+                    if(mag_temp[jj] < mag_min[jj]) mag_min[jj] = mag_temp[jj];
+                }
+            }
+            delay(12);  // at 100 Hz ODR, new mag data is available every 10 ms
+        }
+
+        // Get hard iron correction
+        int32_bias[0]  = (mag_max[0] + mag_min[0])/2;  // get average x mag bias in counts
+        int32_bias[1]  = (mag_max[1] + mag_min[1])/2;  // get average y mag bias in counts
+        int32_bias[2]  = (mag_max[2] + mag_min[2])/2;  // get average z mag bias in counts
+
+        bias[0] = (float) int32_bias[0] * _mag._magCalibration[0];  // save mag biases in uT for main program
+        bias[1] = (float) int32_bias[1] * _mag._magCalibration[1];   
+        bias[2] = (float) int32_bias[2] * _mag._magCalibration[2];  
+
+        // Get soft iron correction estimate
+        int32_scale[0]  = (mag_max[0] - mag_min[0])/2;  // get average x axis max chord length in counts
+        int32_scale[1]  = (mag_max[1] - mag_min[1])/2;  // get average y axis max chord length in counts
+        int32_scale[2]  = (mag_max[2] - mag_min[2])/2;  // get average z axis max chord length in counts
+
+        float avg_rad = int32_scale[0] + int32_scale[1] + int32_scale[2];
+        avg_rad /= 3.0;
+
+        scale[0] = avg_rad/((float)int32_scale[0]);
+        scale[1] = avg_rad/((float)int32_scale[1]);
+        scale[2] = avg_rad/((float)int32_scale[2]);
+    }
+
 };
 
 #endif

@@ -93,7 +93,10 @@ public:
     enum Algorithm
     {
         MADGWICK,
-        MAHONY
+        MAHONY,
+        DMP,
+        EKF,
+        NONE
     };
     float _eInt[3];
     float _q[4];
@@ -123,38 +126,42 @@ public:
     }
 
     bool exec(){
-//        unsigned long t1 = micros();
+        if (!_mpu9250->readInterrupt()) return true;
+
         float sensor_data[15]; //ax, ay, az, gx, gy, gz, hx, hy, hz, t, qx, qy, qz, qw;
         _mpu9250->readData(&sensor_data[0]);
 
-        auto dt = _timeCounter.update();
-//        unsigned long t2 = micros();
-        
         // quaternion
+        auto dt = _timeCounter.update();
         switch (_alg){
             case MADGWICK :        
                 MadgwickQuaternionUpdate(sensor_data, _q, dt); break;
             case MAHONY :
                 MahonyQuaternionUpdate(sensor_data, _eInt, _q, dt); break;
+            case DMP :
+                
+            case EKF :
+                
+            case NONE :
+                _q[0] = 0;
+                _q[1] = 0;
+                _q[2] = 0;
+                _q[3] = 0;
+                break;
         }
-//        unsigned long t3 = micros();
-//Serial.print(F("Read: "));
-//Serial.println(t2-t1);
-//Serial.print(F("MADGWICK: "));
-//Serial.println(t3-t2);
         _updateCounter = (_updateCounter + 1) % _sendThre;
         if (_updateCounter == 0){
-            sensor_data[10] = _q[0]; 
-            sensor_data[11] = _q[1];
-            sensor_data[12] = _q[2];
-            sensor_data[13] = _q[3];
+            if (_alg < NONE){
+                sensor_data[10] = _q[0]; 
+                sensor_data[11] = _q[1];
+                sensor_data[12] = _q[2];
+                sensor_data[13] = _q[3];
+            }
             sensor_data[14] = 1/dt;
-
             uint data_len = sizeof(sensor_data);
             bufWriteStart(data_len);
             bufWrite(sensor_data, data_len);
             bufSend();
-            delay(1);
         }
         return true;
     }
@@ -182,13 +189,11 @@ public:
     ~CalibrateMagnetometerCommand(){}
 
     void setup(){
-        _mpu9250->toBypassMode();
-        _mpu9250->_mag.setup();
-        delay(100);
+        _mpu9250->setup();
     }
 
     bool exec() {
-        _mpu9250->_mag.calibrate(_mpu9250->_mag._magBias, _mpu9250->_mag._magScale);
+        _mpu9250->AK8963calibrate(_mpu9250->_mag._magBias, _mpu9250->_mag._magScale);
         uint bias_len = sizeof(_mpu9250->_mag._magBias), scale_len = sizeof(_mpu9250->_mag._magScale);
         bufWriteStart(bias_len + scale_len, 1);
         bufWrite(_mpu9250->_mag._magBias, bias_len);

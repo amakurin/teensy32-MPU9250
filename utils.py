@@ -1,7 +1,36 @@
 import pywinusb.hid as hid
 from struct import pack, unpack
 from timeit import default_timer as timer
+import math 
+import numpy as np
+from pylab import pi, array, mat, deg2rad
 
+class Quaternion(object):
+    def __init__(self, q = (1.0,0.0,0.0,0.0)):
+        self.q = array(q, dtype=float)
+
+    def conjugate(self):
+        q0, q1, q2, q3 = self.q
+        return self.__class__((q0, -q1, -q2, -q3))
+
+    def __mul__(self, other):
+        a0, a1, a2, a3 = self.q
+        b0, b1, b2, b3 = other.q
+        q0 = a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3
+        q1 = a0 * b1 + a1 * b0 + a2 * b3 - a3 * b2
+        q2 = a0 * b2 - a1 * b3 + a2 * b0 + a3 * b1
+        q3 = a0 * b3 + a1 * b2 - a2 * b1 + a3 * b0
+        return self.__class__((q0, q1, q2, q3))
+
+    def norm(self):
+        q0, q1, q2, q3 = self.q
+        return math.sqrt(q0**2+q1**2+q2**2+q3**2)
+
+    def asVector(self):
+        return vs.vector(self.q[1], self.q[2], self.q[3])
+
+    def fromCoeffs(self, tupleCoeffs):
+        self.q = array(tupleCoeffs)
 
 class RawHIDDevice(object):
     def __init__(self, deviceDescriptor):
