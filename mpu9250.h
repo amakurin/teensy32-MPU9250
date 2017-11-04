@@ -8,6 +8,56 @@
 
 class MPU9250 {
 public:
+
+    enum Algorythm
+    {
+        MADGWICK,
+        MAHONY,
+        DMP,
+        EKF,
+        NONE
+    };
+
+    enum GyroRes
+    {
+        DPS250, 
+        DPS500, 
+        DPS1000, 
+        DPS2000
+    };
+
+    enum AccelRes
+    {
+        G2, 
+        G4, 
+        G8, 
+        G16
+    };
+
+    enum GyroDLPF
+    {
+        BW_8800Hz, 
+        BW_3600Hz, 
+        BW_250Hz, 
+        BW_184Hz, 
+        BW_92Hz, 
+        BW_41Hz, 
+        BW_20Hz, 
+        BW_10Hz, 
+        BW_5Hz
+    };
+
+    enum AccelDLPF
+    {
+        BW_1046Hz, 
+        BW_218Hz, 
+        BW_99Hz, 
+        BW_44Hz, 
+        BW_21Hz, 
+        BW_10_2Hz, 
+        BW_5_05Hz
+    };
+
     static const uint8_t MPU9250_I2C_ADDRESS = 0x68;
 
     static const uint8_t CLOCK_SEL_PLL  = 0x01;
@@ -68,19 +118,95 @@ public:
     static const uint8_t ZA_OFFSET_L    = 0x7E;
 
     static constexpr float G = 9.807f;
-    static constexpr float accelScale = G * 2.0f/32767.5f;
     static constexpr float d2r = 3.14159265359f/180.0f;
-    static constexpr float gyroScale = 250.0f/32767.5f * d2r;
     static constexpr float tempScale = 333.87f;
     static constexpr float tempOffset = 21.0f;
 
     bool _interrupt = false;
     bool _interrupts_enabled = false;
+    Algorythm  _algorythm ;
+    GyroRes  _gyroRes     ;
+    AccelRes _accelRes    ;
+    GyroDLPF   _gyroDLPF  ;
+    AccelDLPF  _accelDLPF ;
+
+    float _gyroScale;
+    uint8_t _gyroRegConfig;
+    uint8_t _gyroDLPFRegConfig;
+    uint8_t _gyroDLPFFCHOISEConfig;
+    
+    float _accelScale;
+    uint8_t _accelRegConfig;
+    uint8_t _accelDLPFRegConfig;
+    uint8_t _accelDLPFFCHOISEConfig;
 
     Bus* _bus;
     AK8963 _mag;
     MPU9250 (Bus* bus) : _bus(bus), _mag(_bus) {
         _bus->begin();
+
+        setAlgorythm(MADGWICK   );
+        setGyroRes  (DPS250     );
+        setAccelRes (G2         );
+        setGyroDLPF (BW_3600Hz  );
+        setAccelDLPF(BW_1046Hz  );
+    }
+
+    void setAlgorythm(Algorythm v){
+        _algorythm = v;
+    }
+
+    void setGyroRes(GyroRes v){
+        _gyroRes = v;
+        switch(_gyroRes) {
+            case DPS250 : _gyroScale = 250.0f ; _gyroRegConfig = 0x00; break;
+            case DPS500 : _gyroScale = 500.0f ; _gyroRegConfig = 0x08; break;
+            case DPS1000: _gyroScale = 1000.0f; _gyroRegConfig = 0x10; break;
+            case DPS2000: _gyroScale = 2000.0f; _gyroRegConfig = 0x18; break;
+        }
+        _gyroScale = _gyroScale /32767.5f * d2r;
+
+    }
+
+    void setAccelRes(AccelRes v){
+        _accelRes = v;
+        switch(_accelRes) {
+            case G2 : _accelScale = 2.0f ; _accelRegConfig = 0x00; break;
+            case G4 : _accelScale = 4.0f ; _accelRegConfig = 0x08; break;
+            case G8 : _accelScale = 8.0f ; _accelRegConfig = 0x10; break;
+            case G16: _accelScale = 16.0f; _accelRegConfig = 0x18; break;
+        }
+        _accelScale = G * _accelScale /32767.5f;
+    }
+
+    void setGyroDLPF(GyroDLPF v){
+        _gyroDLPF = v;
+        _gyroDLPFFCHOISEConfig = 0x00;
+        switch (_gyroDLPF){
+            case BW_8800Hz : _gyroDLPFRegConfig = 0x00; _gyroDLPFFCHOISEConfig = 0x03; break;
+            case BW_3600Hz : _gyroDLPFRegConfig = 0x00; _gyroDLPFFCHOISEConfig = 0x02; break;
+            case BW_250Hz  : _gyroDLPFRegConfig = 0x00; break;
+            case BW_184Hz  : _gyroDLPFRegConfig = 0x01; break;
+            case BW_92Hz   : _gyroDLPFRegConfig = 0x02; break;
+            case BW_41Hz   : _gyroDLPFRegConfig = 0x03; break;
+            case BW_20Hz   : _gyroDLPFRegConfig = 0x04; break;
+            case BW_10Hz   : _gyroDLPFRegConfig = 0x05; break;
+            case BW_5Hz    : _gyroDLPFRegConfig = 0x06; break;
+        } 
+    }
+
+    void setAccelDLPF(AccelDLPF v){
+        _accelDLPF = v;
+        _accelDLPFFCHOISEConfig = 0x00;
+        switch (_accelDLPF){
+            case BW_1046Hz    : _accelDLPFRegConfig = 0x00; _accelDLPFFCHOISEConfig = 0x08; break;
+            case BW_218Hz     : _accelDLPFRegConfig = 0x01; break;
+            case BW_99Hz      : _accelDLPFRegConfig = 0x02; break;
+            case BW_44Hz      : _accelDLPFRegConfig = 0x03; break;
+            case BW_21Hz      : _accelDLPFRegConfig = 0x04; break;
+            case BW_10_2Hz    : _accelDLPFRegConfig = 0x05; break;
+            case BW_5_05Hz    : _accelDLPFRegConfig = 0x06; break;
+        } 
     }
 
     void setInterrupt(){
@@ -107,19 +233,6 @@ public:
         _interrupts_enabled = enable;
     }
 
-// Enabling interrupts with connecting INT to teensy pin causes magnetometer overflow and freezing on my mpu chip
-//    void enableInterrupts(){
-//        writeRegisterBit(INT_PIN_CFG, 4);           // clear interrupt on any read
-//        writeRegisterBit(INT_PIN_CFG, 5);           
-//        writeRegisterBit(I2C_MST_CTRL, WAIT_FOR_ES);   // WAIT_FOR_ES
-//        writeRegisterBit(INT_ENABLE, 0);    // RAW_RDY_EN
-//    }
-
-//    void disableInterrupts(){
-//        writeRegisterBit(I2C_MST_CTRL, WAIT_FOR_ES, 0);   
-//        writeRegisterBit(INT_ENABLE, 0, 0);   
-//    }
-
     void setup() {
         writeRegisterBit(PWR_MGMT_1, H_RESET);
         float  gyroBias[3], accelBias[3];
@@ -140,7 +253,7 @@ public:
         Serial.print(accelBias[2]);
         Serial.println("]");
 
-        writeRegister(PWR_MGMT_1, 1);
+        writeRegister(PWR_MGMT_1, 0x01); // Auto selects the best available clock source – PLL if ready, else use the Internal oscillator
 
         // ORDER MATTERS: First - enable master, then - setup mag  
         writeRegister(I2C_MST_CTRL, I2C_MST_CLK);    // set i2c to 400Hz
@@ -148,6 +261,13 @@ public:
         writeRegisterBit(USER_CTRL, I2C_MST_EN );    // Enable I2C Master Mode
 
         AK8963Setup();
+        delay(20);
+
+        writeRegister(CONFIG, _gyroDLPFRegConfig);
+        writeRegister(GYRO_CONFIG, _gyroRegConfig|_gyroDLPFFCHOISEConfig);
+        writeRegister(ACCEL_CONFIG, _accelRegConfig);
+        writeRegister(ACCEL_CONFIG2, _accelDLPFRegConfig|_accelDLPFFCHOISEConfig);
+        delay(20);
 
         if (_interrupts_enabled) {
             writeRegisterBit(INT_PIN_CFG, 4);   // clear interrupt on any read
@@ -165,14 +285,14 @@ public:
         int32_t gyro_bias[3]  = {0, 0, 0}, accel_bias[3] = {0, 0, 0};
 
         // reset device
-        writeRegister(PWR_MGMT_1, 0x80); // Write a one to bit 7 reset bit; toggle reset device
-        delay(100);
+        writeRegisterBit(PWR_MGMT_1, H_RESET); // Write a one to bit 7 reset bit; toggle reset device
+        delay(20);
 
         // get stable time source; Auto select clock source to be PLL gyroscope reference if ready 
         // else use the internal oscillator, bits 2:0 = 001
         writeRegister(PWR_MGMT_1, 0x01);  
         writeRegister(PWR_MGMT_2, 0x00);
-        delay(200);                                    
+        delay(20);                                    
 
         // Configure device for bias calculation
         writeRegister(INT_ENABLE, 0x00);   // Disable all interrupts
@@ -180,8 +300,8 @@ public:
         writeRegister(PWR_MGMT_1, 0x00);   // Turn on internal clock source
         writeRegister(I2C_MST_CTRL, 0x00); // Disable I2C master
         writeRegister(USER_CTRL, 0x00);    // Disable FIFO and I2C master modes
-        writeRegister(USER_CTRL, 0x0C);    // Reset FIFO and DMP
-        delay(15);
+        writeRegister(USER_CTRL, 0x04);    // Reset FIFO 
+        delay(20);
 
         // Configure MPU6050 gyro and accelerometer for bias calculation
         writeRegister(CONFIG, 0x01);      // Set low-pass filter to 188 Hz
@@ -327,6 +447,12 @@ public:
         dest2[0] = (float)accel_bias[0]/(float)accelsensitivity; 
         dest2[1] = (float)accel_bias[1]/(float)accelsensitivity;
         dest2[2] = (float)accel_bias[2]/(float)accelsensitivity;
+        
+        writeRegister(INT_ENABLE, 0x00);   // Disable all interrupts
+        writeRegister(FIFO_EN, 0x00);      // Disable FIFO
+        writeRegister(USER_CTRL, 0x00);    // Disable FIFO and I2C master modes
+        writeRegister(USER_CTRL, 0x04);    // Reset FIFO 
+        delay(20);
     }
 
 
@@ -356,14 +482,14 @@ public:
         to16bit(&buff[6], &temperature);
 
         // accel
-        sensor_data[0] = ((float) accel[0]) * accelScale; 
-        sensor_data[1] = ((float) accel[1]) * accelScale;
-        sensor_data[2] = ((float) accel[2]) * accelScale;
+        sensor_data[0] = ((float) accel[0]) * _accelScale; 
+        sensor_data[1] = ((float) accel[1]) * _accelScale;
+        sensor_data[2] = ((float) accel[2]) * _accelScale;
 
         // gyro
-        sensor_data[3] = ((float) gyro[0]) * gyroScale; 
-        sensor_data[4] = ((float) gyro[1]) * gyroScale;
-        sensor_data[5] = ((float) gyro[2]) * gyroScale;
+        sensor_data[3] = ((float) gyro[0]) * _gyroScale; 
+        sensor_data[4] = ((float) gyro[1]) * _gyroScale;
+        sensor_data[5] = ((float) gyro[2]) * _gyroScale;
 
         // magnet
         sensor_data[6] = (((float) mag[1])  * _mag._magCalibration[1] - _mag._magBias[1]) * _mag._magScale[1]; 

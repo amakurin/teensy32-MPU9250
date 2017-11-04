@@ -37,6 +37,7 @@ void loop() {
             case CMD_STOP           : pCommand.reset(new GenericStopCommand     (&mpu9250, buffer)); break;
             case CMD_MAG_CALIB      : pCommand.reset(new CalibrateMagnetometerCommand(&mpu9250, buffer)); break;
             case CMD_READ_REGS      : pCommand.reset(new ReadRegistersCommand   (&mpu9250, buffer)); break;
+            case CMD_SETUP          : pCommand.reset(new SetupCommand           (&mpu9250, buffer)); break;
             default: 
                 Serial.print(F("Unknown command received: "));
                 Serial.println(cmd_code);

@@ -9,7 +9,8 @@ enum USBCommand
     CMD_START_SENSORS,
     CMD_STOP,
     CMD_MAG_CALIB,
-    CMD_READ_REGS
+    CMD_READ_REGS,
+    CMD_SETUP
 };
 
 
@@ -90,20 +91,11 @@ public:
 
 class StartSensorsCommand:public BaseCommand {
 public:
-    enum Algorithm
-    {
-        MADGWICK,
-        MAHONY,
-        DMP,
-        EKF,
-        NONE
-    };
     float _eInt[3];
     float _q[4];
     TimeCounter _timeCounter;
     uint _updateCounter;
     uint _sendThre;
-    Algorithm _alg;
     StartSensorsCommand(MPU9250* mpu9250, byte* buffer):BaseCommand(mpu9250, buffer){};
     ~StartSensorsCommand(){}
 
@@ -121,8 +113,6 @@ public:
         uint data_len = getDataLen();
         if (data_len>0) _sendThre = _buffer[2];
         else _sendThre = 100;
-        if (data_len>1) _alg = (Algorithm)_buffer[3];
-        else _alg = MADGWICK;
     }
 
     bool exec(){
@@ -133,16 +123,16 @@ public:
 
         // quaternion
         auto dt = _timeCounter.update();
-        switch (_alg){
-            case MADGWICK :        
+        switch (_mpu9250->_algorythm){
+            case MPU9250::MADGWICK :        
                 MadgwickQuaternionUpdate(sensor_data, _q, dt); break;
-            case MAHONY :
+            case MPU9250::MAHONY :
                 MahonyQuaternionUpdate(sensor_data, _eInt, _q, dt); break;
-            case DMP :
+            case MPU9250::DMP :
                 
-            case EKF :
+            case MPU9250::EKF :
                 
-            case NONE :
+            case MPU9250::NONE :
                 _q[0] = 0;
                 _q[1] = 0;
                 _q[2] = 0;
@@ -151,12 +141,10 @@ public:
         }
         _updateCounter = (_updateCounter + 1) % _sendThre;
         if (_updateCounter == 0){
-            if (_alg < NONE){
-                sensor_data[10] = _q[0]; 
-                sensor_data[11] = _q[1];
-                sensor_data[12] = _q[2];
-                sensor_data[13] = _q[3];
-            }
+            sensor_data[10] = _q[0]; 
+            sensor_data[11] = _q[1];
+            sensor_data[12] = _q[2];
+            sensor_data[13] = _q[3];
             sensor_data[14] = 1/dt;
             uint data_len = sizeof(sensor_data);
             bufWriteStart(data_len);
@@ -232,11 +220,34 @@ public:
         bufSend();
         delay(10);
         startAddr += 60;
-        bufWriteStart(sizeof(reg_data)+1-startAddr,1);
+        bufWriteStart(sizeof(reg_data)+1-startAddr, 1);
         bufWrite(startAddr);
         bufWrite(&reg_data[startAddr], sizeof(reg_data)-startAddr);
         bufSend();
         delay(10);
+        return false;
+    }
+};
+
+class SetupCommand:public BaseCommand {
+public:
+    SetupCommand(MPU9250* mpu9250, byte* buffer):BaseCommand(mpu9250, buffer){};
+    ~SetupCommand(){}
+
+    void setup(){
+    }
+
+    bool exec() {
+        uint data_len = getDataLen();
+        if (data_len==5){
+            _mpu9250->setAlgorythm((MPU9250::Algorythm ) _buffer[2]);
+            _mpu9250->setGyroRes  ((MPU9250::GyroRes   ) _buffer[3]);
+            _mpu9250->setAccelRes ((MPU9250::AccelRes  ) _buffer[4]);
+            _mpu9250->setGyroDLPF ((MPU9250::GyroDLPF  ) _buffer[5]);
+            _mpu9250->setAccelDLPF((MPU9250::AccelDLPF ) _buffer[6]);
+        }
+        bufWriteStart(0, 1);
+        bufSend();
         return false;
     }
 };
